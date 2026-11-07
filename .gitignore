@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Archivos locales solicitados para el proyecto
+*.pyc
+.DS_Store
+exports/
