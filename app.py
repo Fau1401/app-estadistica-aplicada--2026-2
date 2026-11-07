@@ -38,6 +38,7 @@ def main() -> None:
     - **Regresión:** correlación, regresión por mínimos cuadrados ordinarios y diagnóstico de residuos.
     - **Series de tiempo:** componentes, descomposición, referencia, validación y pronóstico.
     """)
+    st.success("Todas las páginas están disponibles.")
 
     st.header("Lápiz y Algoritmo")
     st.info(
