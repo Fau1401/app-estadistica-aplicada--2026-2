@@ -7,6 +7,8 @@ import streamlit as st
 
 from src.datos import cargar_csv, tarjeta_estudiante
 from src.eda import resumen_numerico, tabla_frecuencias, vallas_tukey
+from src.exportar import figura_pdf, figura_png, reporte_markdown, tabla_excel
+from src.validacion import archivo_vacio, columnas_seleccionadas, suficientes_datos, datos_faltantes
 
 
 UNIDADES = {
@@ -37,6 +39,15 @@ tarjeta_estudiante()
 st.title("EDA: Análisis Exploratorio de Datos")
 
 df = cargar_csv("parcelas.csv")
+if not archivo_vacio(df, "parcelas.csv"):
+    st.stop()
+if not columnas_seleccionadas(
+    df, ["parcela", "suelo", "riego", "rendimiento"], "el análisis EDA"
+):
+    st.stop()
+datos_faltantes(df, ["parcela", "suelo", "riego", "rendimiento"], "parcelas.csv")
+if not suficientes_datos(len(df), 10, "el EDA de parcelas"):
+    st.stop()
 
 # Los filtros se aplican primero para que todas las secciones trabajen igual.
 st.sidebar.header("Filtros del EDA")
@@ -252,3 +263,34 @@ st.dataframe(
     use_container_width=True,
     hide_index=True,
 )
+
+with st.expander("Descargar resultados"):
+    tabla_excel(
+        {
+            "Resumen": tabla_resumen,
+            "Frecuencia suelo": tabla_frecuencias(df_filtrado["suelo"]),
+            "Frecuencia riego": tabla_frecuencias(df_filtrado["riego"]),
+            "Muestra EDA10": muestra,
+        },
+        "eda_resultados.xlsx",
+    )
+    fig_exportar, ax_exportar = plt.subplots(figsize=(8, 5))
+    sns.histplot(df_filtrado[variable].dropna(), kde=True, ax=ax_exportar, color="#2a9d8f")
+    ax_exportar.set_xlabel(f"{nombre} ({unidad})" if unidad else nombre)
+    ax_exportar.set_ylabel("Frecuencia")
+    ax_exportar.set_title(f"Histograma de {nombre.lower()}")
+    figura_png(fig_exportar, "eda_histograma.png")
+    figura_pdf(fig_exportar, "eda_histograma.pdf")
+    reporte_markdown(
+        "Reporte EDA",
+        {
+            "Variable analizada": variable,
+            "Resumen numérico": "El resumen seleccionado está disponible en la tabla Excel.",
+            "Datos faltantes": (
+                "Se conservaron los faltantes y se documentó su tratamiento esperado; "
+                "no se eliminaron sin justificación."
+            ),
+        },
+        "reporte_eda.md",
+    )
+    plt.close(fig_exportar)

@@ -16,6 +16,8 @@ from src.regresion import (
     matriz_correlacion,
     predecir,
 )
+from src.exportar import figura_pdf, figura_png, reporte_markdown, tabla_excel
+from src.validacion import archivo_vacio, columnas_seleccionadas, suficientes_datos, datos_faltantes, error_ajuste
 
 
 UNIDADES_X = {
@@ -44,6 +46,13 @@ tarjeta_estudiante()
 st.title("Correlación y regresión lineal")
 
 parcelas = cargar_csv("parcelas.csv")
+if not archivo_vacio(parcelas, "parcelas.csv"):
+    st.stop()
+if not columnas_seleccionadas(parcelas, ["rendimiento"], "la regresión"):
+    st.stop()
+datos_faltantes(parcelas, ["rendimiento"], "la regresión")
+if not suficientes_datos(len(parcelas.dropna(subset=["rendimiento"])), 8, "la regresión simple"):
+    st.stop()
 variables_numericas = [
     columna
     for columna in parcelas.columns
@@ -113,7 +122,15 @@ x_seleccionada = st.selectbox(
     ),
 )
 datos_rls = parcelas[[x_seleccionada, "rendimiento"]].dropna()
-modelo_rls = ajustar_rls(datos_rls, x_seleccionada, "rendimiento")
+modelo_rls = error_ajuste(
+    ajustar_rls,
+    datos_rls,
+    x_seleccionada,
+    "rendimiento",
+    nombre_modelo="la regresión lineal simple",
+)
+if modelo_rls is None:
+    st.stop()
 b0 = float(modelo_rls.params["Intercept"])
 b1 = float(modelo_rls.params[x_seleccionada])
 r = float(datos_rls[x_seleccionada].corr(datos_rls["rendimiento"], method="pearson"))
@@ -304,7 +321,15 @@ variables_multiples = [
     "materia_organica",
     "ph",
 ]
-modelo_multiple = ajustar_multiple(parcelas, "rendimiento", variables_multiples)
+modelo_multiple = error_ajuste(
+    ajustar_multiple,
+    parcelas,
+    "rendimiento",
+    variables_multiples,
+    nombre_modelo="la regresión múltiple",
+)
+if modelo_multiple is None:
+    st.stop()
 
 tabla_multiple = pd.DataFrame({
     "coeficiente": modelo_multiple.params.index,
@@ -449,3 +474,34 @@ st.dataframe(
     use_container_width=True,
     hide_index=True,
 )
+
+with st.expander("Descargar resultados"):
+    tabla_excel(
+        {
+            "Correlacion": tabla_correlacion,
+            "Coeficientes RLS": tabla_coeficientes,
+            "Regresion multiple": tabla_multiple,
+            "Muestra 8": tabla_mano,
+            "Comparacion 8 y todas": tabla_comparacion,
+        },
+        "regresion_resultados.xlsx",
+    )
+    fig_exportar, ax_exportar = plt.subplots(figsize=(8, 5))
+    ax_exportar.scatter(datos_rls[x_seleccionada], datos_rls["rendimiento"], color="#457b9d")
+    ax_exportar.plot(grid_x, b0 + b1 * grid_x, color="#d62828")
+    ax_exportar.set_xlabel(f"{nombre_x} ({unidad_x})" if unidad_x else nombre_x)
+    ax_exportar.set_ylabel("Rendimiento (t/ha)")
+    ax_exportar.set_title("Recta de regresión ajustada")
+    figura_png(fig_exportar, "regresion_lineal.png")
+    figura_pdf(fig_exportar, "regresion_lineal.pdf")
+    reporte_markdown(
+        "Reporte de regresión",
+        {
+            "Variable X": nombre_x,
+            "Modelo simple": f"rendimiento = {b0:.4f} + {b1:.6f} × {nombre_x}",
+            "R² y RSE": f"R² = {modelo_rls.rsquared:.4f}; RSE = {rse:.4f} t/ha.",
+            "Decisión al 5 %": decision,
+        },
+        "reporte_regresion.md",
+    )
+    plt.close(fig_exportar)

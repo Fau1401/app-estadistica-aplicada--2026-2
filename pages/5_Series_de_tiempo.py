@@ -19,6 +19,8 @@ from src.series import (
     metricas,
     promedio_movil,
 )
+from src.exportar import figura_pdf, figura_png, reporte_markdown, tabla_excel
+from src.validacion import archivo_vacio, columnas_seleccionadas, suficientes_datos, datos_faltantes, error_ajuste
 
 
 MESES = [
@@ -68,7 +70,23 @@ variable = st.selectbox(
         "Precipitación (mm)" if valor == "precipitacion_mm" else "Temperatura (°C)"
     ),
 )
+df_clima = cargar_csv("clima_mensual.csv")
+if not archivo_vacio(df_clima, "clima_mensual.csv"):
+    st.stop()
+if not columnas_seleccionadas(
+    df_clima,
+    ["fecha", variable],
+    "la exploración temporal",
+):
+    st.stop()
 serie = cargar_serie(variable)
+if not suficientes_datos(len(serie.dropna()), 24, f"la serie mensual de {variable}"):
+    st.stop()
+datos_faltantes(
+    serie.dropna().to_frame(name=variable),
+    [variable],
+    f"la serie mensual de {variable}",
+)
 unidad = "mm" if variable == "precipitacion_mm" else "°C"
 nombre_variable = (
     "Precipitación" if variable == "precipitacion_mm" else "Temperatura"
@@ -95,6 +113,53 @@ ax.set_title(f"Serie mensual de {nombre_variable.lower()} y promedios móviles")
 ax.legend()
 ax.grid(True, alpha=0.25)
 mostrar_grafico(fig)
+
+with st.expander("Descargar resultados"):
+    metricas_referencia_exportacion = (
+        tabla_metricas_ref if "tabla_metricas_ref" in locals() else pd.DataFrame()
+    )
+    indices_exportacion = tabla_indices if "tabla_indices" in locals() else pd.DataFrame()
+    metricas_muestra_exportacion = (
+        tabla_metricas_muestra if "tabla_metricas_muestra" in locals() else pd.DataFrame()
+    )
+    tabla_muestra_exportacion = tabla_24 if "tabla_24" in locals() else pd.DataFrame()
+    tabla_excel(
+        {
+            "Metricas referencia": metricas_referencia_exportacion,
+            "Indices estacionales": indices_exportacion,
+            "Muestra 24": tabla_muestra_exportacion,
+            "Errores muestra": pd.DataFrame(
+                filas_errores if "filas_errores" in locals() else []
+            ),
+            "Metricas muestra": metricas_muestra_exportacion,
+        },
+        "series_resultados.xlsx",
+    )
+    fig_exportar, ax_exportar = plt.subplots(figsize=(11, 4))
+    ax_exportar.plot(serie.index, serie.values, color="#457b9d", marker="o", linewidth=1)
+    ax_exportar.set_xlabel("Fecha")
+    ax_exportar.set_ylabel(f"{nombre_variable} ({unidad})")
+    ax_exportar.set_title(f"Serie mensual de {nombre_variable.lower()}")
+    ax_exportar.grid(True, alpha=0.25)
+    figura_png(fig_exportar, "series_linea.png")
+    figura_pdf(fig_exportar, "series_linea.pdf")
+    reporte_markdown(
+        "Reporte de series de tiempo",
+        {
+            "Variable": nombre_variable,
+            "Métodos de referencia": metricas_referencia_exportacion.to_csv(index=False),
+            "Muestra manual": (
+                (
+                    f"Ganó {metricas_muestra_exportacion.iloc[0]['metodo']} "
+                    f"con SMAPE {metricas_muestra_exportacion.iloc[0]['SMAPE']:.4f}."
+                    if not metricas_muestra_exportacion.empty
+                    else "La muestra manual aún no produjo métricas válidas."
+                )
+            ),
+        },
+        "reporte_series.md",
+    )
+    plt.close(fig_exportar)
 
 datos_mes = serie.dropna().to_frame(name="valor").copy()
 datos_mes["mes"] = datos_mes.index.month
@@ -254,7 +319,8 @@ with st.form("form_autots"):
 
 if ejecutar:
     with st.spinner("AutoTS está evaluando modelos y transformaciones. Puede tardar varios minutos."):
-        resultado_autots = ejecutar_autots_cache(
+        resultado_autots = error_ajuste(
+            ejecutar_autots_cache,
             cargar_serie("precipitacion_mm"),
             horizonte,
             model_list,
@@ -262,8 +328,10 @@ if ejecutar:
             validaciones,
             intervalo,
             semilla,
+            nombre_modelo="la ejecución automática AutoTS",
         )
-    st.session_state["resultado_autots"] = resultado_autots
+    if resultado_autots is not None:
+        st.session_state["resultado_autots"] = resultado_autots
 
 resultado_autots = st.session_state.get("resultado_autots")
 if resultado_autots is not None:

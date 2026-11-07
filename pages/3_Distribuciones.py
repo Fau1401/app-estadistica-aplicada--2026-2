@@ -20,6 +20,8 @@ from src.distribuciones import (
 )
 from src.eda import resumen_numerico
 from src.modelos_curvas import ajustar_curva, MODELOS, tabla_modelos
+from src.exportar import figura_pdf, figura_png, reporte_markdown, tabla_excel
+from src.validacion import archivo_vacio, columnas_seleccionadas, suficientes_datos, datos_faltantes, error_ajuste
 
 
 def mostrar_grafico(figura: plt.Figure) -> None:
@@ -44,7 +46,14 @@ tarjeta_estudiante()
 st.title("Distribuciones de precipitación máxima anual")
 
 df_precipitacion = cargar_csv("precip_max_anual.csv")
+if not archivo_vacio(df_precipitacion, "precip_max_anual.csv"):
+    st.stop()
+if not columnas_seleccionadas(df_precipitacion, ["anio", "pmax24h_mm"], "el ajuste de distribuciones"):
+    st.stop()
 datos = pd.to_numeric(df_precipitacion["pmax24h_mm"], errors="coerce").dropna()
+datos_faltantes(df_precipitacion, ["pmax24h_mm"], "precip_max_anual.csv")
+if not suficientes_datos(len(datos), 10, "el ajuste de distribuciones extremas"):
+    st.stop()
 st.sidebar.header("Opciones de distribución")
 seleccionadas = st.sidebar.multiselect(
     "Distribuciones candidatas",
@@ -82,7 +91,14 @@ mostrar_grafico(fig)
 st.header("2. Candidatas y ajuste")
 ajustes = {}
 for nombre in seleccionadas:
-    ajustes[nombre] = ajustar(datos, nombre)[0]
+    ajuste_resultado = error_ajuste(
+        ajustar, datos, nombre,
+        nombre_modelo=f"la distribución {nombre}",
+    )
+    if ajuste_resultado is not None:
+        ajustes[nombre] = ajuste_resultado[0]
+if not ajustes:
+    st.stop()
 
 fig, ax = plt.subplots(figsize=(9, 5))
 sns.histplot(datos, bins="auto", stat="density", kde=False, color="#b0bec5", ax=ax, alpha=0.55)
@@ -440,3 +456,32 @@ st.info(
     "la complejidad innecesaria. Es como decidir si comprar una secadora más compleja: si "
     "una más sencilla seca igual dentro de la precisión requerida, conviene la opción sencilla."
 )
+
+with st.expander("Descargar resultados"):
+    tabla_excel(
+        {
+            "Criterios AIC": tabla_info,
+            "Retorno": tabla_retorno,
+            "Muestra 10": tabla_muestra,
+            "Secado AICc": tabla_secado_visible,
+        },
+        "distribuciones_resultados.xlsx",
+    )
+    fig_exportar, ax_exportar = plt.subplots(figsize=(8, 5))
+    ax_exportar.scatter(datos.index, datos.values, color="#457b9d")
+    ax_exportar.set_xlabel("Observación")
+    ax_exportar.set_ylabel("Precipitación máxima en 24 h (mm)")
+    ax_exportar.set_title("Máximos anuales registrados")
+    figura_png(fig_exportar, "distribuciones_datos.png")
+    figura_pdf(fig_exportar, "distribuciones_datos.pdf")
+    reporte_markdown(
+        "Reporte de distribuciones extremas",
+        {
+            "Modelo recomendado": modelo_recomendado,
+            "Cuantiles": "Los cuantiles por distribución están disponibles en Excel.",
+            "Riesgo T=50/N=25": f"{riesgo_10:.4f}",
+            "Secado": f"El mejor modelo fue {mejor_modelo} según AICc.",
+        },
+        "reporte_distribuciones.md",
+    )
+    plt.close(fig_exportar)
