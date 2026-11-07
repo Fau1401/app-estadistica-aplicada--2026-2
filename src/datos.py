@@ -50,3 +50,52 @@ def tarjeta_estudiante() -> None:
     st.sidebar.write(f"**Cultivo:** {metadatos['cultivo']}")
     st.sidebar.write(f"**Municipio:** {metadatos['municipio']}")
     st.sidebar.write(f"**Huella:** `{metadatos['huella']}`")
+
+
+def tipos_de_variables(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clasifica las variables de un DataFrame como nominales, ordinales,
+    cuantitativas discretas o cuantitativas continuas.
+
+    Para variables ordinales se reconocen nombres que contienen "nivel",
+    "clase", "categoria", "categoría", "orden" o "grupo". Las variables
+    numéricas enteras se consideran discretas y las de punto flotante,
+    continuas.
+    """
+    nombres_ordinales = ("nivel", "clase", "categoria", "categoría", "orden", "grupo")
+    filas = []
+
+    for variable in df.columns:
+        tipo_dato = str(df[variable].dtype)
+        nombre = variable.lower()
+
+        if pd.api.types.is_datetime64_any_dtype(df[variable]):
+            clasificacion = "cuantitativa continua"
+        elif pd.api.types.is_bool_dtype(df[variable]) or pd.api.types.is_object_dtype(df[variable]) or pd.api.types.is_string_dtype(df[variable]):
+            clasificacion = "cualitativa ordinal" if any(palabra in nombre for palabra in nombres_ordinales) else "cualitativa nominal"
+        elif pd.api.types.is_integer_dtype(df[variable]):
+            clasificacion = "cuantitativa discreta"
+        elif pd.api.types.is_float_dtype(df[variable]):
+            clasificacion = "cuantitativa continua"
+        else:
+            clasificacion = "cualitativa nominal"
+
+        filas.append({
+            "variable": variable,
+            "tipo de dato": tipo_dato,
+            "clasificación estadística": clasificacion,
+        })
+
+    return pd.DataFrame(filas)
+
+
+def valores_faltantes(df: pd.DataFrame) -> pd.DataFrame:
+    """Calcula la cantidad y el porcentaje de valores faltantes por variable."""
+    cantidades = df.isna().sum()
+    porcentajes = cantidades / len(df) * 100 if len(df) else cantidades * 0.0
+
+    return pd.DataFrame({
+        "variable": cantidades.index,
+        "cantidad faltante": cantidades.values,
+        "porcentaje faltante": porcentajes.round(2).values,
+    })
