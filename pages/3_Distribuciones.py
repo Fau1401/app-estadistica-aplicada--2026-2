@@ -19,6 +19,7 @@ from src.distribuciones import (
     tabla_comparativa,
 )
 from src.eda import resumen_numerico
+from src.modelos_curvas import ajustar_curva, MODELOS, tabla_modelos
 
 
 def mostrar_grafico(figura: plt.Figure) -> None:
@@ -356,4 +357,86 @@ st.subheader("Riesgo de diseño")
 st.write(
     f"Para T = 50 años y N = 25 años: "
     f"R = 1 - (1 - 1/50)^25 = {riesgo_10:.4f}."
+)
+
+# Ingeniería agrícola: modelos semiempíricos de secado
+st.header("Ingeniería: modelos de secado (AICc)")
+secado = cargar_csv("secado.csv")
+tiempo_secado = secado["tiempo_min"].to_numpy(dtype=float)
+mr_observado = secado["MR"].to_numpy(dtype=float)
+
+@st.cache_data
+def comparar_modelos_secado(t: np.ndarray, mr: np.ndarray) -> pd.DataFrame:
+    """Cachea los ajustes no lineales de todos los modelos de secado."""
+    return tabla_modelos(t, mr)
+
+
+tabla_secado = comparar_modelos_secado(tiempo_secado, mr_observado)
+tablas_validas = tabla_secado.dropna(subset=["AICc"])
+mejor_modelo = str(tablas_validas.iloc[0]["modelo"])
+
+st.subheader("Curvas observada y ajustadas")
+fig, ax = plt.subplots(figsize=(9, 5))
+ax.scatter(
+    tiempo_secado,
+    mr_observado,
+    color="#1d3557",
+    label="MR observado",
+    s=35,
+)
+grid_tiempo = np.linspace(tiempo_secado.min(), tiempo_secado.max(), 300)
+for nombre, especificacion in MODELOS.items():
+    try:
+        parametros, _ = ajustar_curva(tiempo_secado, mr_observado, nombre)
+        mr_curva = especificacion["funcion"](grid_tiempo, *parametros)
+        ax.plot(grid_tiempo, mr_curva, linewidth=1.8, label=nombre)
+    except (ValueError, RuntimeError, FloatingPointError):
+        continue
+ax.set_xlabel("Tiempo de secado (min)")
+ax.set_ylabel("Razón de humedad MR (adimensional)")
+ax.set_title("Comparación de modelos semiempíricos de secado")
+ax.grid(True, alpha=0.25)
+ax.legend()
+mostrar_grafico(fig)
+
+st.subheader("Comparación por AICc")
+columnas_mostrar = ["modelo", "k", "R2", "RMSE", "chi2_reducido", "AIC", "AICc", "delta_AICc"]
+columnas_mostrar += [
+    nombre_parametro
+    for nombre_parametro in ["parametros", "a", "k_modelo", "n", "c", "k0", "b", "k1"]
+    if nombre_parametro in tabla_secado.columns
+]
+tabla_secado_visible = tabla_secado[columnas_mostrar].copy()
+st.dataframe(
+    tabla_secado_visible.style.format({
+        columna: "{:.4f}"
+        for columna in tabla_secado_visible.columns
+        if columna not in ["modelo", "k", "parametros"]
+    }),
+    use_container_width=True,
+    hide_index=True,
+)
+
+parametros_mejor, mr_ajustado_mejor = ajustar_curva(
+    tiempo_secado,
+    mr_observado,
+    mejor_modelo,
+)
+residuos = mr_observado - mr_ajustado_mejor
+
+st.subheader(f"Residuos del mejor modelo: {mejor_modelo}")
+fig, ax = plt.subplots(figsize=(8, 4))
+ax.scatter(tiempo_secado, residuos, color="#e76f51", s=35)
+ax.axhline(0, color="#264653", linestyle="--", linewidth=1)
+ax.set_xlabel("Tiempo de secado (min)")
+ax.set_ylabel("Residuo de MR (observado - ajustado)")
+ax.set_title(f"Residuos de {mejor_modelo}")
+ax.grid(True, alpha=0.25)
+mostrar_grafico(fig)
+
+st.info(
+    "El AICc castiga los parámetros extra mediante la corrección por tamaño de muestra. "
+    "Así aplica una navaja de Ockham matemática: se recompensa el ajuste, pero se penaliza "
+    "la complejidad innecesaria. Es como decidir si comprar una secadora más compleja: si "
+    "una más sencilla seca igual dentro de la precisión requerida, conviene la opción sencilla."
 )
