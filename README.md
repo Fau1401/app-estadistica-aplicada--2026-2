@@ -11,6 +11,12 @@
 
 Los datos personales anteriores se obtienen de `datos/metadatos.json`.
 
+## App en línea
+
+**Enlace:** [Agregar aquí la URL de Streamlit Community Cloud](https://share.streamlit.io/)
+
+Después de completar el despliegue, sustituya el texto anterior por la URL definitiva de la aplicación.
+
 ## Descripción general
 
 Esta aplicación multipágina desarrollada con Streamlit acompaña el aprendizaje de estadística aplicada en Ingeniería Agrícola. Permite explorar datos agrícolas simulados, caracterizar variables, ajustar distribuciones de probabilidad, estimar relaciones mediante regresión y analizar pronósticos de series de tiempo. Los resultados se presentan en tablas, gráficos y reportes descargables.
@@ -122,8 +128,137 @@ La aplicación dispone de seis páginas:
 ├── generar_datos.py        # Generación reproducible de datos simulados
 ├── pronostico_autots.py    # Ejecución auxiliar de AutoTS
 ├── requirements.txt
+├── runtime.txt             # Versión de Python recomendada para la nube
 └── LICENSE
 ```
+
+## Despliegue en Streamlit Community Cloud
+
+### Preparación previa
+
+El proyecto usa Python 3.11, definido en `runtime.txt`, y conserva rutas relativas independientes del equipo local.
+
+Antes de desplegar:
+
+1. Confirme que los archivos `app.py`, `requirements.txt`, `runtime.txt`, `datos/` y `.streamlit/config.toml` estén en el repositorio.
+2. No suba `.venv/`, archivos temporales, cachés ni resultados locales personales.
+3. Haga `push` de los cambios a la rama principal de GitHub que desea desplegar.
+4. Ejecute localmente `.venv/bin/streamlit run app.py` antes de publicar.
+
+### Pasos para crear la aplicación
+
+1. Inicie sesión en **Streamlit Community Cloud** con la cuenta de GitHub que puede ver el repositorio.
+2. Seleccione **Create app** o **Deploy an app**.
+3. En el formulario de despliegue indique:
+   - **Repository:** `Fau1401/app-estadistica-aplicada--2026-2`
+   - **Branch:** la rama que contiene los cambios, normalmente `main`
+   - **Main file path:** `app.py`
+   - **Python version:** Python `3.11`, si Community Cloud muestra el selector y toma la configuración de `runtime.txt`.
+4. Pulse **Deploy**.
+5. Espere la instalación de las dependencias y la compilación. La URL aparecerá en el panel de la aplicación.
+6. Copie la URL final en la sección **App en línea** de este README.
+
+Streamlit Cloud ejecutará principalmente:
+
+```text
+streamlit run app.py
+```
+
+No debe indicar una ruta absoluta del Codespace, por ejemplo `/workspaces/...`, como archivo principal.
+
+### Configuración de Streamlit
+
+El archivo `.streamlit/config.toml` se usa para indicar:
+
+- `headless = true`, necesario para ejecutarse como servidor en la nube.
+- `enableXsrfProtection = true`, que conserva activada la protección estándar contra solicitudes cruzadas.
+
+Mantenga el archivo dentro del repositorio. No es necesario cambiar el puerto ni añadir una clave de servidor. Streamlit Community Cloud administra HTTPS, puerto público y reinicios.
+
+### Dependencias y Python
+
+`requirements.txt` contiene exclusivamente las librerías necesarias para ejecutar la aplicación:
+
+- Streamlit, pandas y NumPy para la interfaz y los datos.
+- SciPy y statsmodels para distribuciones y regresión.
+- Matplotlib y seaborn para las gráficas.
+- openpyxl para leer y exportar Excel.
+- AutoTS para el pronóstico automático.
+
+`pytest` y la instalación directa de `scikit-learn` se excluyen porque las pruebas locales y las dependencias internas de AutoTS no son necesarias para el arranque de la aplicación. Si posteriormente se agregan pruebas o funciones propias que importen `pytest` o `scikit-learn`, deberán volver a declararse explícitamente.
+
+Después de cada cambio en dependencias:
+
+```bash
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m pytest -q
+.venv/bin/streamlit run app.py
+```
+
+`runtime.txt` establece una versión de Python compatible y reproducible. Streamlit Cloud puede preferir su selector de Python; en ese caso, elija Python 3.11 y deje el archivo `runtime.txt` como referencia para entornos locales compatibles.
+
+### AutoTS en Streamlit Community Cloud
+
+AutoTS puede consumir tiempo y memoria. Para mejorar la respuesta de la nube:
+
+- Mantenga la lista `superfast` como opción predeterminada.
+- Limite las generaciones entre 1 y 3 mientras realiza pruebas públicas.
+- Limite las validaciones entre 1 y 2.
+- Use horizontes de 6 o 12 meses.
+- No ejecute el ajuste automáticamente al cargar la página; conserve el botón que inicia el cálculo bajo una acción del usuario.
+- Suba a `resultados/` los archivos generados localmente:
+  - `resultados/autots_pronostico.csv`
+  - `resultados/autots_top10_modelos.csv`
+  - `resultados/autots_mejor_modelo.json`
+- La sección **Resultados guardados** de la página de series carga esos archivos sin volver a ejecutar AutoTS.
+- Para actualizar el pronóstico, genere los tres archivos localmente, haga `git add`, `commit` y `push`, y vuelva a ejecutar la app.
+
+### Errores comunes en la nube
+
+#### Dependencias ausentes o incompatibles
+
+- Lea primero el mensaje completo de instalación en el panel **Manage app → Logs**.
+- Confirme que la dependencia aparece en `requirements.txt` y que el nombre está escrito correctamente.
+- Solución de reinicio: seleccione **Reboot app** o vuelva a desplegar después de confirmar el `requirements.txt`.
+- No instale paquetes manualmente solo en la terminal si no se declaran en el archivo, porque desaparecerán al reiniciar.
+- Use Python 3.11 si las ruedas de una dependencia no están disponibles para otra versión.
+
+#### Módulos o archivos no encontrados
+
+- Streamlit Cloud usa la raíz del repositorio como directorio de trabajo.
+- La carga principal de datos debe depender de rutas basadas en el archivo, como `Path(__file__).resolve().parent.parent / "datos"`.
+- Evite rutas absolutas de Windows, `/workspaces/...` o rutas relativas iniciadas desde una terminal diferente.
+- Mantenga `datos/metadatos.json` y todos los CSV referidos por `src/datos.py` dentro del repositorio.
+- No modifique ni elimine `datos/` ni `generar_datos.py`.
+
+#### Error con `app.py`
+
+- Compruebe que **Main file path** sea exactamente `app.py`.
+- Confirme que el archivo existe en la rama seleccionada.
+- Escriba nombres de página y de archivo respetando capitalización, guiones bajos y acentos; GitHub y Linux distinguen esas diferencias.
+
+#### `ModuleNotFoundError`
+
+- Verifique que el paquete tenga nombre de distribución correcto en `requirements.txt`.
+- Corrija importaciones que utilizan el paquete local, por ejemplo `from src.series import ...`.
+- Asegúrese de que `src/__init__.py` esté presente si se usa como paquete.
+- Realice un nuevo despliegue para recrear el entorno de dependencias.
+
+#### Memoria insuficiente o reinicios
+
+- Use AutoTS solo bajo solicitud del usuario, con `superfast`, pocas generaciones y un horizonte corto.
+- Evite cargar archivos grandes sin validar su tamaño.
+- Reduzca el número de simulaciones Monte Carlo en pruebas públicas y no cree varias figuras grandes simultáneamente.
+- Cierre gráficos costosos, curvas duplicadas y tablas innecesarias cuando ya no se usen.
+- Si se supera el límite de memoria persistente, reinicie la aplicación y use los resultados guardados en `resultados/`.
+- Los datos cargados por visitantes son temporales y no deben usarse como almacenamiento permanente.
+
+#### Páginas con errores al abrir
+
+- Abra la página desde el navegador y revise **Manage app → Logs**.
+- Confirme primero la existencia de cada archivo de `datos/`.
+- Asegúrese de que las columnas requeridas tengan nombres y tipos esperados.
+- Pruebe la carga con una muestra pequeña antes de usar archivos grandes.
 
 ## Ejecución en GitHub Codespaces
 
