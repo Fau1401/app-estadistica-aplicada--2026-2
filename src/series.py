@@ -5,6 +5,7 @@ from typing import Iterable
 
 import numpy as np
 import pandas as pd
+from autots import AutoTS
 from statsmodels.tsa.seasonal import seasonal_decompose
 
 
@@ -230,6 +231,144 @@ def concurso_referencia(muestra24: pd.DataFrame) -> pd.DataFrame:
             **metricas_metodo,
         })
     return pd.DataFrame(filas).sort_values("SMAPE").reset_index(drop=True)
+
+
+def ejecutar_autots(
+    serie: pd.Series,
+    horizonte: int,
+    model_list,
+    generaciones: int,
+    validaciones: int,
+    intervalo: float,
+    semilla: int,
+) -> dict:
+    """
+    Ajusta y compara modelos con AutoTS para un horizonte mensual.
+
+    AutoTS funciona como un ensayo de variedades genéticas: prueba combinaciones
+    de modelos, transforma los datos y los evalúa en validaciones históricas;
+    cada generación es una ronda de selección en la que las mejores
+    combinaciones sobreviven y generan nuevas variantes. ``ensemble=None``,
+    además, pide la selección de un modelo individual en vez de promediarlo.
+    """
+    if horizonte < 1:
+        raise ValueError("El horizonte debe ser al menos 1 mes.")
+    if intervalo <= 0 or intervalo >= 1:
+        raise ValueError("El intervalo de predicción debe estar entre 0 y 1.")
+
+    # Convierte la serie a la tabla larga que espera AutoTS: fecha, variable.
+    datos_entrada = pd.DataFrame({
+        "fecha": pd.to_datetime(serie.index),
+        "precipitacion_mm": pd.to_numeric(serie, errors="coerce").to_numpy(),
+    }).dropna()
+    datos_entrada["fecha"] = pd.to_datetime(datos_entrada["fecha"]).dt.to_period("M").dt.to_timestamp()
+
+    # Configura el torneo automático con sólo una tarea y salida silenciosa.
+    modelo = AutoTS(
+        forecast_length=horizonte,
+        frequency="MS",
+        prediction_interval=intervalo,
+        max_generations=generaciones,
+        no_negatives=True,
+        ensemble=None,
+        random_seed=semilla,
+        model_list=model_list,
+        transformer_list="superfast",
+        validation_method="backwards",
+        num_validations=validaciones,
+        n_jobs=1,
+        verbose=0,
+    )
+    ajuste = modelo.fit(
+        datos_entrada,
+        date_col="fecha",
+        value_col="precipitacion_mm",
+    )
+    pronostico_objeto = ajuste.predict(
+        forecast_length=horizonte,
+        prediction_interval=intervalo,
+        verbose=0,
+    )
+
+    # Normaliza el pronóstico y sus bandas aunque tengan nombres internos distintos.
+    pronostico = pronostico_objeto.forecast.copy()
+    limite_inferior = pronostico_objeto.lower_forecast.copy()
+    limite_superior = pronostico_objeto.upper_forecast.copy()
+    pronostico = pronostico.reset_index()
+    limite_inferior = limite_inferior.reset_index()
+    limite_superior = limite_superior.reset_index()
+
+    columna_pronostico = [
+        columna for columna in pronostico.columns
+        if columna != "index" and columna != "fecha"
+    ][0]
+    columna_inferior = [
+        columna for columna in limite_inferior.columns
+        if columna != "index" and columna != "fecha"
+    ][0]
+    columna_superior = [
+        columna for columna in limite_superior.columns
+        if columna != "index" and columna != "fecha"
+    ][0]
+
+    fechas = (
+        pronostico["index"].to_numpy()
+        if "index" in pronostico.columns
+        else pronostico["fecha"].to_numpy()
+    )
+    pronostico_mm = pronostico[columna_pronostico].to_numpy(dtype=float)
+    limite_inferior_mm = limite_inferior[columna_inferior].to_numpy(dtype=float)
+    limite_superior_mm = limite_superior[columna_superior].to_numpy(dtype=float)
+
+    tabla_pronostico = pd.DataFrame({
+        "fecha": pd.to_datetime(fechas),
+        "pronostico_mm": pronostico_mm,
+        "limite_inferior_mm": limite_inferior_mm,
+        "limite_superior_mm": limite_superior_mm,
+    })
+
+    # Extrae los resultados de validación y los estandariza a cinco columnas.
+    resultados = ajuste.results("validation").copy()
+    columnas_disponibles = [columna for columna in resultados.columns if str(columna).lower() in {
+        "model", "smape", "mae", "rmse", "score"
+    }]
+    normalizado = pd.DataFrame(index=resultados.index)
+    for destino in ["Model", "smape", "mae", "rmse", "Score"]:
+        coincidencia = [
+            columna for columna in resultados.columns
+            if str(columna).lower() == destino.lower()
+        ]
+        normalizado[destino] = (
+            resultados[coincidencia[0]].to_numpy()
+            if coincidencia
+            else np.nan
+        )
+    for columna_num in ["smape", "mae", "rmse", "Score"]:
+        if columna_num in normalizado.columns:
+            normalizado[columna_num] = pd.to_numeric(
+                normalizado[columna_num],
+                errors="coerce",
+            )
+    tabla_top10 = normalizado.sort_values(
+        "Score",
+        na_position="last",
+    ).head(10).reset_index(drop=True)
+
+    # Guarda metadatos completos del ganador para trazabilidad reproducible.
+    mejor_modelo = {
+        "nombre": str(getattr(ajuste, "best_model_name", "Desconocido")),
+        "parametros": getattr(ajuste, "best_model_params", {}),
+        "transformaciones": getattr(
+            ajuste,
+            "best_model_transformation_params",
+            {},
+        ),
+    }
+    return {
+        "pronostico": tabla_pronostico,
+        "mejor_modelo": mejor_modelo,
+        "top10": tabla_top10,
+    }
 
 
 if __name__ == "__main__":

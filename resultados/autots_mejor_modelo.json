@@ -1,0 +1,26 @@
+{
+  "nombre": "SeasonalNaive",
+  "parametros": {
+    "method": "mean",
+    "lag_1": 420,
+    "lag_2": 7
+  },
+  "transformaciones": {
+    "fillna": "ffill",
+    "transformations": {
+      "0": "SeasonalDifference",
+      "1": "MaxAbsScaler",
+      "2": "Detrend"
+    },
+    "transformation_params": {
+      "0": {
+        "lag_1": 12,
+        "method": "Median"
+      },
+      "1": {},
+      "2": {
+        "model": "GLS"
+      }
+    }
+  }
+}
